@@ -1,13 +1,12 @@
-// CRC Predictor
 // =====================================================
 // Predictor שמחשב תוצאה צפויה לפי אותו אלגוריתם של ה-DUT
 
-class crc_predictor extends uvm_component;
+class crc_ref_model extends uvm_component;
 
-  uvm_analysis_imp #(crc_transaction, crc_predictor) analysis_imp;
+  uvm_analysis_imp #(crc_transaction, crc_ref_model) analysis_imp;
   uvm_analysis_port #(crc_transaction) predicted_port;
 
-  `uvm_component_utils(crc_predictor)
+  `uvm_component_utils(crc_ref_model)
 
   function new(string name, uvm_component parent);
     super.new(name, parent);

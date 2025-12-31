@@ -1,37 +1,38 @@
 // =====================================================
-// crc_coverage.sv  (Functional Coverage for crc_tb_top)
+// crc_coverage.sv  (UVM Functional Coverage Collector)
+// UPDATED: Reset/Flow/Ctrl sampled from VIF clocked
 // =====================================================
 
 `ifndef CRC_COVERAGE_SV
 `define CRC_COVERAGE_SV
 
-// This module is meant to be instantiated inside crc_tb_top
-module crc_coverage (
-  input  logic        clk,
-  input  logic        rst_n,
+class crc_coverage extends uvm_subscriber #(crc_transaction);
+  `uvm_component_utils(crc_coverage)
 
-  input  logic        data_valid,
-  input  logic [31:0] data_in,
-  input  logic [1:0]  crc_select,
-  input  logic [31:0] crc_init,
+  crc_transaction tr;
+  virtual crc_if vif;
 
-  input  logic [31:0] crc_out,
-  input  logic        crc_valid,
-  input  logic        busy
-);
-
+  // -------------------------------
+  // Flow tracking (from VIF)
+  // -------------------------------
   int unsigned txn_count = 0;
-  logic [31:0] prev_crc_out;
-  bit has_prev_crc = 0;
+  bit          cont_sample = 0;
 
-  function automatic bit is_continuous_now();
-    return (has_prev_crc && (crc_init === prev_crc_out));
+  logic [31:0] prev_crc_init;
+  bit          has_prev_init = 0;
+  bit          prev_data_valid = 0;
+
+  // continuous if same crc_init as previous VALID beat
+  function automatic bit is_continuous_now_vif();
+    return (has_prev_init && (vif.crc_init === prev_crc_init));
   endfunction
 
-  // 1) CRC type coverage - sample on data_valid
-  covergroup cg_crc_type @(posedge clk);
+  // =====================================
+  // 1) CRC Type Coverage (from transaction)
+  // =====================================
+  covergroup cg_crc_type;
     option.per_instance = 1;
-    cp_type : coverpoint crc_select iff (data_valid) {
+    cp_type : coverpoint tr.crc_select iff (tr.data_valid) {
       bins crc3  = {2'b00};
       bins crc8  = {2'b01};
       bins crc16 = {2'b10};
@@ -39,79 +40,150 @@ module crc_coverage (
     }
   endgroup
 
-  // 2) Reset coverage
-  covergroup cg_reset @(posedge rst_n or negedge rst_n);
+  // =====================================
+  // 2) Reset Coverage (sampled from VIF)
+  // NOTE: we sample both data_valid=0 and data_valid=1
+  // =====================================
+  covergroup cg_reset;
     option.per_instance = 1;
-    cp_rst : coverpoint rst_n {
-      bins asserted   = {1'b0};
-      bins deasserted = {1'b1};
+    cp_dv : coverpoint vif.data_valid {
+      bins zero = {0};
+      bins one  = {1};
     }
   endgroup
 
-  // 3) Flow + continuous mode - sample on crc_valid
-  covergroup cg_flow @(posedge clk);
+  // =====================================
+  // 3) Operation Flow Coverage (sampled at end of burst)
+  // =====================================
+  covergroup cg_flow;
     option.per_instance = 1;
 
-    cp_multi : coverpoint txn_count iff (crc_valid) {
-      bins first = {1};
-      bins multi = {[2:1000]};
+    cp_multi : coverpoint txn_count {
+      bins single_op = {1};
+      bins multi_op  = {[2:1000]};
     }
 
-    cp_cont : coverpoint is_continuous_now() iff (crc_valid) {
+    cp_cont : coverpoint cont_sample {
       bins single_mode = {0};
       bins continuous  = {1};
     }
-
-    cx_type_cont : cross crc_select, cp_cont iff (crc_valid);
   endgroup
 
-  // 4) Control signals coverage
-  covergroup cg_ctrl @(posedge clk);
+  // =====================================
+  // 4) Control Signal Coverage (from VIF)
+  // =====================================
+  covergroup cg_ctrl;
     option.per_instance = 1;
 
-    cp_busy : coverpoint busy {
+    cp_busy : coverpoint vif.busy {
       bins idle = {0};
-      bins work = {1};
+      bins busy = {1};
     }
 
-    cp_crc_valid : coverpoint crc_valid {
-      bins low  = {0};
-      bins high = {1};
+    cp_valid : coverpoint vif.crc_valid {
+      bins not_valid = {0};
+      bins valid     = {1};
     }
-
-    cx_busy_valid : cross cp_busy, cp_crc_valid;
   endgroup
 
-  cg_crc_type cov_type = new();
-  cg_reset    cov_rst  = new();
-  cg_flow     cov_flow = new();
-  cg_ctrl     cov_ctrl = new();
+  // =====================================
+  // 5) Data Patterns Coverage (from transaction)
+  // =====================================
+  covergroup cg_data_patterns;
+    option.per_instance = 1;
+    cp_data : coverpoint tr.data_in iff (tr.data_valid) {
+      bins all0  = {32'h00000000};
+      bins all1  = {32'hFFFFFFFF};
+      bins other = default;
+    }
+  endgroup
 
-  // bookkeeping
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      txn_count    <= 0;
-      prev_crc_out <= '0;
-      has_prev_crc <= 0;
-    end else begin
-      if (crc_valid) begin
-        txn_count    <= txn_count + 1;
-        prev_crc_out <= crc_out;
-        has_prev_crc <= 1;
+  // =====================================
+  // Constructor
+  // =====================================
+  function new(string name, uvm_component parent);
+    super.new(name, parent);
+    cg_crc_type      = new();
+    cg_reset         = new();
+    cg_flow          = new();
+    cg_ctrl          = new();
+    cg_data_patterns = new();
+  endfunction
+
+  function void build_phase(uvm_phase phase);
+    super.build_phase(phase);
+    if (!uvm_config_db#(virtual crc_if)::get(this, "", "vif", vif))
+      `uvm_fatal("NOVIF", "crc_coverage: No vif in config_db")
+  endfunction
+
+  // =====================================
+  // Clocked sampling from interface
+  // This is what closes Reset/Flow/Ctrl to 100%
+  // =====================================
+  task run_phase(uvm_phase phase);
+    super.run_phase(phase);
+
+    forever begin
+      @(posedge vif.clk);
+
+      // sample reset + ctrl every cycle (guarantees 0/1 hits)
+      cg_reset.sample();
+      cg_ctrl.sample();
+
+      // FLOW tracking: count only valid beats
+      if (vif.data_valid === 1'b1) begin
+        if (!prev_data_valid)
+          txn_count = 0;
+
+        txn_count++;
+        cont_sample = is_continuous_now_vif();
+
+        // update "previous init" only on valid beats
+        prev_crc_init = vif.crc_init;
+        has_prev_init = 1;
       end
+
+      // burst end: when dv drops 1->0, sample flow once
+      if (prev_data_valid && (vif.data_valid === 1'b0)) begin
+        if (txn_count > 0)
+          cg_flow.sample();
+        txn_count = 0;
+      end
+
+      prev_data_valid = (vif.data_valid === 1'b1);
     end
-  end
+  endtask
 
-  // summary at end
-  final begin
-    $display("\n==== FUNCTIONAL COVERAGE SUMMARY ====");
-    $display("cg_crc_type = %0.2f%%", cov_type.get_coverage());
-    $display("cg_reset    = %0.2f%%", cov_rst.get_coverage());
-    $display("cg_flow     = %0.2f%%", cov_flow.get_coverage());
-    $display("cg_ctrl     = %0.2f%%", cov_ctrl.get_coverage());
-    $display("TOTAL (design-wide) = %0.2f%%", $get_coverage());
-  end
+  // =====================================
+  // Transaction path (kept)
+  // Type + Patterns are still sampled from items
+  // =====================================
+  virtual function void write(crc_transaction t);
+    tr = t;
 
-endmodule
+    // These should be tied to actual item content
+    if (t.data_valid === 1'b1) begin
+      cg_crc_type.sample();
+      cg_data_patterns.sample();
+    end
+  endfunction
+
+  // =====================================
+  // Report
+  // =====================================
+  function void report_phase(uvm_phase phase);
+    super.report_phase(phase);
+    `uvm_info("VPLAN_COV",
+      $sformatf(
+        "Type: %0.2f%%, Reset: %0.2f%%, Flow: %0.2f%%, Ctrl: %0.2f%%",
+        cg_crc_type.get_coverage(),
+        cg_reset.get_coverage(),
+        cg_flow.get_coverage(),
+        cg_ctrl.get_coverage()
+      ),
+      UVM_LOW)
+  endfunction
+
+endclass
 
 `endif

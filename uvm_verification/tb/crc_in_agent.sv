@@ -1,44 +1,40 @@
-// CRC Agent
-// =====================================================
-// תיאור: Agent המכיל Driver, Sequencer, ו-Monitor
-
 class crc_in_agent extends uvm_agent;
-    
-    crc_driver driver;
-    crc_sequencer sequencer;
-    crc_monitor monitor;
-    
-    uvm_analysis_port #(crc_transaction) analysis_port;
-    
+
   `uvm_component_utils(crc_in_agent)
-    
-    // =====================================================
-    // Constructor
-    // =====================================================
-    function new(string name, uvm_component parent);
-        super.new(name, parent);
-    endfunction : new
-    
-    // =====================================================
-    // Build Phase
-    // =====================================================
-    function void build_phase(uvm_phase phase);
-        super.build_phase(phase);
-        
-        driver = crc_driver::type_id::create("driver", this);
-        sequencer = crc_sequencer::type_id::create("sequencer", this);
-        monitor = crc_monitor::type_id::create("monitor", this);
-        
-        analysis_port = new("analysis_port", this);
-    endfunction : build_phase
-    
-    // =====================================================
-    // Connect Phase
-    // =====================================================
-    function void connect_phase(uvm_phase phase);
-        super.connect_phase(phase);
-        driver.seq_item_port.connect(sequencer.seq_item_export);
-        monitor.item_collected_port.connect(analysis_port);
-    endfunction : connect_phase
-    
-endclass : crc_in_agent
+
+  // Components
+  crc_driver        driver;
+  crc_sequencer     sequencer;
+  crc_monitor_in    in_monitor;
+  crc_monitor_out   out_monitor;
+
+  // Analysis ports
+  uvm_analysis_port #(crc_transaction) in_ap;
+  uvm_analysis_port #(crc_transaction) out_ap;
+
+  function new(string name, uvm_component parent);
+    super.new(name, parent);
+  endfunction
+
+  function void build_phase(uvm_phase phase);
+    super.build_phase(phase);
+
+    driver      = crc_driver       ::type_id::create("driver", this);
+    sequencer   = crc_sequencer    ::type_id::create("sequencer", this);
+    in_monitor  = crc_monitor_in   ::type_id::create("in_monitor", this);
+    out_monitor = crc_monitor_out  ::type_id::create("out_monitor", this);
+
+    in_ap  = new("in_ap",  this);
+    out_ap = new("out_ap", this);
+  endfunction
+
+  function void connect_phase(uvm_phase phase);
+    super.connect_phase(phase);
+
+    driver.seq_item_port.connect(sequencer.seq_item_export);
+
+    in_monitor.ap.connect(in_ap);
+    out_monitor.ap.connect(out_ap);
+  endfunction
+
+endclass

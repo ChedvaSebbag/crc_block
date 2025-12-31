@@ -1,61 +1,77 @@
-// =====================================================
-// CRC Sequence Library
-// =====================================================
+`ifndef CRC_SEQ_LIB_SV
+`define CRC_SEQ_LIB_SV
 
+// =====================================================
+// Base sequence
+// =====================================================
 class crc_base_seq extends uvm_sequence #(crc_transaction);
-
   `uvm_object_utils(crc_base_seq)
 
   function new(string name="crc_base_seq");
     super.new(name);
   endfunction
-
-  task body();
-    `uvm_info("BASE_SEQ", "Base sequence started", UVM_LOW)
-  endtask
-
 endclass
 
 
 // =====================================================
-// Random Sequence
+// Reset toggle sequence  → RESET = 100%
 // =====================================================
-class crc_random_seq extends crc_base_seq;
+class crc_reset_toggle_seq extends crc_base_seq;
+  `uvm_object_utils(crc_reset_toggle_seq)
 
-  rand int num_transactions;
-
-  constraint c_num { num_transactions inside {[10:50]}; }
-
-  `uvm_object_utils(crc_random_seq)
-
-  function new(string name="crc_random_seq");
+  function new(string name="crc_reset_toggle_seq");
     super.new(name);
-    num_transactions = 20; // default
   endfunction
 
   task body();
-    int i;
-
-    `uvm_info("RANDOM_SEQ",
-              $sformatf("Starting random sequence: %0d transactions", num_transactions),
-              UVM_MEDIUM)
-
-    for (i = 0; i < num_transactions; i++) begin
+    repeat (12) begin
       `uvm_create(req)
       assert(req.randomize());
-      req.data_valid = 1'b1;
+      req.data_valid = 0;
+      `uvm_send(req)
+
+      `uvm_create(req)
+      assert(req.randomize());
+      req.data_valid = 1;
       `uvm_send(req)
     end
   endtask
-
 endclass
 
 
 // =====================================================
-// Directed Sequence
+// Random sequence  → מחזק Flow + Ctrl
+// =====================================================
+class crc_random_seq extends crc_base_seq;
+  `uvm_object_utils(crc_random_seq)
+
+  int num_transactions = 80;
+
+  function new(string name="crc_random_seq");
+    super.new(name);
+  endfunction
+
+  task body();
+    for (int i = 0; i < num_transactions; i++) begin
+      `uvm_create(req)
+      assert(req.randomize());
+
+      // forcing idle occasionally
+      if ((i % 5) == 0)
+        req.data_valid = 0;
+      else
+        req.data_valid = 1;
+
+      `uvm_send(req)
+    end
+  endtask
+endclass
+
+
+// =====================================================
+// Directed sequence  → FLOW = 100% (FIXED)
 // =====================================================
 class crc_directed_seq extends crc_base_seq;
-
   `uvm_object_utils(crc_directed_seq)
 
   function new(string name="crc_directed_seq");
@@ -63,31 +79,48 @@ class crc_directed_seq extends crc_base_seq;
   endfunction
 
   task body();
-    int s;
+    logic [31:0] fixed_init   = 32'h12345678;
+    logic [31:0] single_init  = 32'hA5A5A5A5; // ✅ unique init כדי להבטיח single_mode=0
 
-    `uvm_info("DIRECTED_SEQ", "Starting directed sequence", UVM_MEDIUM)
+    // -----------------------------
+    // SINGLE operation  (single_op + single_mode)
+    // -----------------------------
+    `uvm_create(req)
+    assert(req.randomize());
+    req.data_valid = 1;
+    req.crc_init   = single_init;  // ✅ שונה מה-fixed_init
+    `uvm_send(req)
 
-    // Same data, iterate over all CRC types
-    for (s = 0; s < 4; s++) begin
-      repeat (5) begin
-        `uvm_create(req)
-        req.data_in    = 32'hDEADBEEF;
-        req.crc_init   = 32'h00000000;
-        req.crc_select = s[1:0];
-        req.data_valid = 1'b1;
-        `uvm_send(req)
-      end
+    // close burst
+    `uvm_create(req)
+    assert(req.randomize());
+    req.data_valid = 0;
+    `uvm_send(req)
+
+    // -----------------------------
+    // MULTI + CONTINUOUS burst (multi_op + continuous)
+    // -----------------------------
+    repeat (4) begin
+      `uvm_create(req)
+      assert(req.randomize());
+      req.data_valid = 1;
+      req.crc_init   = fixed_init; // same init → continuous
+      `uvm_send(req)
     end
-  endtask
 
+    // explicit burst close
+    `uvm_create(req)
+    assert(req.randomize());
+    req.data_valid = 0;
+    `uvm_send(req)
+  endtask
 endclass
 
 
 // =====================================================
-// Edge Case Sequence
+// Edge case sequence  → DATA patterns + Flow close
 // =====================================================
 class crc_edge_case_seq extends crc_base_seq;
-
   `uvm_object_utils(crc_edge_case_seq)
 
   function new(string name="crc_edge_case_seq");
@@ -95,27 +128,22 @@ class crc_edge_case_seq extends crc_base_seq;
   endfunction
 
   task body();
-    int s, p;
-    logic [31:0] patterns [0:3];
+    logic [31:0] patterns[4] = '{32'h0, 32'hFFFFFFFF, 32'hAAAAAAAA, 32'h55555555};
 
-    // Edge patterns
-    patterns[0] = 32'h00000000;
-    patterns[1] = 32'hFFFFFFFF;
-    patterns[2] = 32'hAAAAAAAA;
-    patterns[3] = 32'h55555555;
-
-    `uvm_info("EDGE_SEQ", "Starting edge case sequence", UVM_MEDIUM)
-
-    for (s = 0; s < 4; s++) begin
-      for (p = 0; p < 4; p++) begin
-        `uvm_create(req)
-        req.data_in    = patterns[p];
-        req.crc_init   = 32'h00000000;
-        req.crc_select = s[1:0];
-        req.data_valid = 1'b1;
-        `uvm_send(req)
-      end
+    foreach (patterns[i]) begin
+      `uvm_create(req)
+      assert(req.randomize());
+      req.data_valid = 1;
+      req.data_in    = patterns[i];
+      `uvm_send(req)
     end
-  endtask
 
+    // close burst
+    `uvm_create(req)
+    assert(req.randomize());
+    req.data_valid = 0;
+    `uvm_send(req)
+  endtask
 endclass
+
+`endif

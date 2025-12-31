@@ -50,11 +50,11 @@ class crc_test extends uvm_test;
 endclass : crc_test
 
 // =====================================================
-// Smoke Test
+// Basic Functionality Tset
 // =====================================================
-class crc_smoke_test extends crc_test;
-    
-    `uvm_component_utils(crc_smoke_test)
+class crc_basic_functionality_test extends crc_test;
+   
+    `uvm_component_utils(crc_basic_functionality_test)
     
     function new(string name, uvm_component parent);
         super.new(name, parent);
@@ -65,17 +65,17 @@ class crc_smoke_test extends crc_test;
         
         phase.raise_objection(this);
         
-        `uvm_info("SMOKE_TEST", "Starting smoke test", UVM_LOW)
+      `uvm_info("BASIC_TEST", "Starting basic functionality test", UVM_LOW)
         
-        seq.num_transactions = 20;
-        seq.start(env.agent.sequencer);
+        seq.num_transactions = 100;
+      seq.start(env.agent.sequencer);
         
         #500;
         
         phase.drop_objection(this);
     endtask : run_phase
     
-endclass : crc_smoke_test
+endclass : crc_basic_functionality_test
 
 // =====================================================
 // Directed Test
