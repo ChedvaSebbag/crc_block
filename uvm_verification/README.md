@@ -140,7 +140,7 @@ vsim -c -do "run -all; quit" \
 
 This project can also be executed on **EDA Playground**:
 
-🔗 https://www.edaplayground.com/x/ZwkZ
+🔗 https://www.edaplayground.com/x/JWiJ
 
 
 The link includes the complete CRC design and UVM-based verification environment  

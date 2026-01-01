@@ -25,13 +25,12 @@ class crc_env extends uvm_env;
     
   function void connect_phase(uvm_phase phase);
     super.connect_phase(phase);
-        
-    // INPUT -> Predictor + Coverage
-    agent.in_ap.connect(ref_model.analysis_imp);
-    agent.in_ap.connect(cov.analysis_export);
+   // INPUT monitor -> Predictor + Coverage
+    agent.in_monitor.ap.connect(ref_model.analysis_imp);
+	agent.in_monitor.ap.connect(cov.analysis_export);
 
-    // OUTPUT -> Scoreboard (actual)
-    agent.out_ap.connect(scoreboard.actual_imp);
+	// OUTPUT monitor -> Scoreboard (actual)
+	agent.out_monitor.ap.connect(scoreboard.actual_imp);
 
     // Predictor -> Scoreboard (expected)
     ref_model.predicted_port.connect(scoreboard.predicted_imp);

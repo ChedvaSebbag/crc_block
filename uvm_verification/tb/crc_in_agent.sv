@@ -8,9 +8,7 @@ class crc_in_agent extends uvm_agent;
   crc_monitor_in    in_monitor;
   crc_monitor_out   out_monitor;
 
-  // Analysis ports
-  uvm_analysis_port #(crc_transaction) in_ap;
-  uvm_analysis_port #(crc_transaction) out_ap;
+ 
 
   function new(string name, uvm_component parent);
     super.new(name, parent);
@@ -24,8 +22,7 @@ class crc_in_agent extends uvm_agent;
     in_monitor  = crc_monitor_in   ::type_id::create("in_monitor", this);
     out_monitor = crc_monitor_out  ::type_id::create("out_monitor", this);
 
-    in_ap  = new("in_ap",  this);
-    out_ap = new("out_ap", this);
+   
   endfunction
 
   function void connect_phase(uvm_phase phase);
@@ -33,8 +30,7 @@ class crc_in_agent extends uvm_agent;
 
     driver.seq_item_port.connect(sequencer.seq_item_export);
 
-    in_monitor.ap.connect(in_ap);
-    out_monitor.ap.connect(out_ap);
+    
   endfunction
 
 endclass
